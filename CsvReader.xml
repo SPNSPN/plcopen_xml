@@ -1,0 +1,392 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<project xmlns="http://www.plcopen.org/xml/tc6_0200">
+  <fileHeader companyName="Beckhoff Automation GmbH" productName="TwinCAT PLC Control" productVersion="3.5.13.21" creationDateTime="2022-06-19T00:13:29.5093173" />
+  <contentHeader name="CSVExample" modificationDateTime="2022-06-19T00:13:29.7723003">
+    <coordinateInfo>
+      <fbd>
+        <scaling x="1" y="1" />
+      </fbd>
+      <ld>
+        <scaling x="1" y="1" />
+      </ld>
+      <sfc>
+        <scaling x="1" y="1" />
+      </sfc>
+    </coordinateInfo>
+    <addData>
+      <data name="http://www.3s-software.com/plcopenxml/projectinformation" handleUnknown="implementation">
+        <ProjectInformation />
+      </data>
+    </addData>
+  </contentHeader>
+  <types>
+    <dataTypes />
+    <pous>
+      <pou name="CsvReader" pouType="functionBlock">
+        <interface>
+          <inputVars>
+            <variable name="en">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="path">
+              <type>
+                <derived name="T_MaxString" />
+              </type>
+            </variable>
+          </inputVars>
+          <outputVars>
+            <variable name="eno">
+              <type>
+                <BOOL />
+              </type>
+              <initialValue>
+                <simpleValue value="FALSE" />
+              </initialValue>
+            </variable>
+            <variable name="err">
+              <type>
+                <BOOL />
+              </type>
+            </variable>
+            <variable name="rows">
+              <type>
+                <UDINT />
+              </type>
+            </variable>
+            <variable name="columns">
+              <type>
+                <UDINT />
+              </type>
+            </variable>
+          </outputVars>
+          <localVars constant="true">
+            <variable name="MAX_CSV_ROWS">
+              <type>
+                <UDINT />
+              </type>
+              <initialValue>
+                <simpleValue value="1023" />
+              </initialValue>
+            </variable>
+            <variable name="MAX_CSV_COLUMNS">
+              <type>
+                <UDINT />
+              </type>
+              <initialValue>
+                <simpleValue value="1023" />
+              </initialValue>
+            </variable>
+          </localVars>
+          <localVars>
+            <variable name="fbFileOpen">
+              <type>
+                <derived name="FB_FileOpen" />
+              </type>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> Opens file </xhtml>
+              </documentation>
+            </variable>
+            <variable name="fbFileClose">
+              <type>
+                <derived name="FB_FileClose" />
+              </type>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> Closes file </xhtml>
+              </documentation>
+            </variable>
+            <variable name="fbFileGets">
+              <type>
+                <derived name="FB_FileGets" />
+              </type>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> Reads one record (line) </xhtml>
+              </documentation>
+            </variable>
+            <variable name="fbReader">
+              <type>
+                <derived name="FB_CSVMemBufferReader" />
+              </type>
+              <documentation>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml"> Helper function block used to parse CSV data bytes (single record line) </xhtml>
+              </documentation>
+            </variable>
+            <variable name="line">
+              <type>
+                <derived name="T_MaxString" />
+              </type>
+            </variable>
+            <variable name="csv">
+              <type>
+                <array>
+                  <dimension lower="0" upper="MAX_CSV_ROWS" />
+                  <dimension lower="0" upper="MAX_CSV_COLUMNS" />
+                  <baseType>
+                    <derived name="T_MaxString" />
+                  </baseType>
+                </array>
+              </type>
+            </variable>
+            <variable name="comp_open_step">
+              <type>
+                <BOOL />
+              </type>
+              <initialValue>
+                <simpleValue value="FALSE" />
+              </initialValue>
+            </variable>
+            <variable name="read_len">
+              <type>
+                <UDINT />
+              </type>
+              <initialValue>
+                <simpleValue value="0" />
+              </initialValue>
+            </variable>
+            <variable name="n_column">
+              <type>
+                <UDINT />
+              </type>
+              <initialValue>
+                <simpleValue value="0" />
+              </initialValue>
+            </variable>
+            <variable name="line_parsed">
+              <type>
+                <BOOL />
+              </type>
+              <initialValue>
+                <simpleValue value="TRUE" />
+              </initialValue>
+            </variable>
+            <variable name="comp_parse_step">
+              <type>
+                <BOOL />
+              </type>
+              <initialValue>
+                <simpleValue value="FALSE" />
+              </initialValue>
+            </variable>
+            <variable name="comp_close_step">
+              <type>
+                <BOOL />
+              </type>
+              <initialValue>
+                <simpleValue value="FALSE" />
+              </initialValue>
+            </variable>
+            <variable name="done">
+              <type>
+                <BOOL />
+              </type>
+              <initialValue>
+                <simpleValue value="FALSE" />
+              </initialValue>
+            </variable>
+          </localVars>
+        </interface>
+        <body>
+          <ST>
+            <xhtml xmlns="http://www.w3.org/1999/xhtml">IF NOT en THEN
+	RETURN;
+END_IF
+
+IF done THEN
+	eno := TRUE;
+	rows := read_len;
+	columns := n_column;
+	RETURN;
+END_IF
+
+(* open file step *)
+IF NOT comp_open_step THEN
+	fbFileOpen( sPathName := path
+				, nMode := FOPEN_MODEREAD OR FOPEN_MODETEXT
+				, ePath := PATH_GENERIC
+				, bExecute := TRUE);
+	IF fbFileOpen.bError THEN
+		err := TRUE;
+		RETURN;
+	END_IF
+	IF NOT fbFileOpen.bBusy THEN
+		comp_open_step := TRUE;
+	END_IF	
+ELSE
+	fbFileOpen(bExecute := FALSE);
+END_IF
+
+(* read line step *)
+IF comp_open_step AND (NOT comp_parse_step) AND line_parsed THEN
+	fbFileGets( bExecute := TRUE
+				, hFile := fbFileOpen.hFile
+				, sLine =&gt; line );
+			
+	IF fbFileGets.bError THEN
+		err := FALSE;
+		RETURN;
+	END_IF
+	IF fbFileGets.bBusy THEN
+		RETURN;
+	END_IF
+	IF fbFileGets.bEOF OR read_len &gt; MAX_CSV_ROWS THEN
+		comp_parse_step := TRUE;
+		RETURN;
+	END_IF
+	
+	(* FB_CSVMemBufferReader needs CRLF(EOL), but FB_FileGets reaturns LF without CR. *)
+	(* Thus, restore CR to before LF. *)
+	IF RIGHT( line, 1 ) = '$L' THEN
+		line := REPLACE( line, '$R$L', 2, LEN( line ) );
+	END_IF
+	
+	n_column := 0;
+	fbReader.eCmd := eEnumCmd_First;
+	line_parsed := FALSE;
+ELSE
+	fbFileGets(bExecute := FALSE);
+END_IF
+
+(* parse line step *)
+IF (NOT line_parsed) THEN
+	fbReader( pBuffer := ADR( line ), cbBuffer := SIZEOF( line ));
+	IF fbReader.bOk THEN
+		fbReader.eCmd := eEnumCmd_Next;(* Read next field value *)
+	
+		csv[read_len, n_column] := CSVFIELD_TO_STRING(fbReader.getValue, FALSE);
+		n_column := n_column + 1;
+	END_IF
+
+	IF fbReader.bCRLF OR (n_column &gt; MAX_CSV_COLUMNS) THEN
+		read_len := read_len + 1;
+		line_parsed := TRUE;
+	END_IF
+END_IF
+
+(* close file step *)
+IF comp_parse_step AND (NOT comp_close_step) THEN
+	fbFileClose( sNetId := '', hFile := fbFileOpen.hFile, bExecute := TRUE );
+	
+	IF fbFileClose.bError THEN
+		err := TRUE;
+		RETURN;
+	END_IF
+	IF NOT fbFileClose.bBusy THEN
+		comp_close_step := TRUE;
+	END_IF
+ELSE
+	fbFileClose(bExecute := FALSE);	
+END_IF
+		
+IF comp_close_step THEN
+	done := TRUE;
+END_IF</xhtml>
+          </ST>
+        </body>
+        <addData>
+          <data name="http://www.3s-software.com/plcopenxml/method" handleUnknown="implementation">
+            <Method name="Get" ObjectId="3e3dfceb-ae64-4cd6-b0f7-790b31b91fa6">
+              <interface>
+                <returnType>
+                  <derived name="T_MaxString" />
+                </returnType>
+                <inputVars>
+                  <variable name="en">
+                    <type>
+                      <BOOL />
+                    </type>
+                  </variable>
+                  <variable name="col">
+                    <type>
+                      <UDINT />
+                    </type>
+                  </variable>
+                  <variable name="row">
+                    <type>
+                      <UDINT />
+                    </type>
+                  </variable>
+                </inputVars>
+              </interface>
+              <body>
+                <ST>
+                  <xhtml xmlns="http://www.w3.org/1999/xhtml">IF NOT en THEN
+	RETURN;
+END_IF
+
+IF (col &lt;= MAX_CSV_COLUMNS) AND (col &lt;= MAX_CSV_ROWS) THEN
+	Get := csv[col, row];
+END_IF</xhtml>
+                </ST>
+              </body>
+              <InterfaceAsPlainText>
+                <xhtml xmlns="http://www.w3.org/1999/xhtml">METHOD Get : T_MaxString
+VAR_INPUT
+	en: BOOL;
+	col: UDINT;
+	row: UDINT;
+END_VAR
+</xhtml>
+              </InterfaceAsPlainText>
+              <addData />
+            </Method>
+          </data>
+          <data name="http://www.3s-software.com/plcopenxml/interfaceasplaintext" handleUnknown="implementation">
+            <InterfaceAsPlainText>
+              <xhtml xmlns="http://www.w3.org/1999/xhtml">FUNCTION_BLOCK CsvReader
+VAR_INPUT
+	en: BOOL;
+	path: T_MaxString;
+END_VAR
+VAR_OUTPUT
+	eno: BOOL := FALSE;
+	err: BOOL;
+	rows: UDINT;
+	columns: UDINT;
+END_VAR
+VAR CONSTANT
+	MAX_CSV_ROWS: UDINT := 1023;
+	MAX_CSV_COLUMNS: UDINT := 1023;	
+END_VAR
+VAR	
+	fbFileOpen		: FB_FileOpen;(* Opens file *)
+	fbFileClose		: FB_FileClose;(* Closes file *)
+	fbFileGets		: FB_FileGets;(* Reads one record (line) *)
+	fbReader		: FB_CSVMemBufferReader;(* Helper function block used to parse CSV data bytes (single record line) *)
+
+	
+	line: T_MaxString;
+	csv: ARRAY[0..MAX_CSV_ROWS, 0..MAX_CSV_COLUMNS] OF T_MaxString;
+
+	
+	comp_open_step: BOOL := FALSE;
+	read_len: UDINT :=  0;
+	n_column: UDINT := 0;
+	line_parsed: BOOL := TRUE;
+	comp_parse_step: BOOL := FALSE;
+	comp_close_step: BOOL := FALSE;
+	done: BOOL := FALSE;
+END_VAR
+</xhtml>
+            </InterfaceAsPlainText>
+          </data>
+          <data name="http://www.3s-software.com/plcopenxml/objectid" handleUnknown="discard">
+            <ObjectId>08e39c43-e939-42cc-b5e5-b78bd6c0e4f9</ObjectId>
+          </data>
+        </addData>
+      </pou>
+    </pous>
+  </types>
+  <instances>
+    <configurations />
+  </instances>
+  <addData>
+    <data name="http://www.3s-software.com/plcopenxml/projectstructure" handleUnknown="discard">
+      <ProjectStructure>
+        <Object Name="CsvReader" ObjectId="08e39c43-e939-42cc-b5e5-b78bd6c0e4f9">
+          <Object Name="Get" ObjectId="3e3dfceb-ae64-4cd6-b0f7-790b31b91fa6" />
+        </Object>
+      </ProjectStructure>
+    </data>
+  </addData>
+</project>
